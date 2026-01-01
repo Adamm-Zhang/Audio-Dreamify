@@ -74,17 +74,20 @@ input_tensor = torch.randn(1, 16, 108)  # (Batch, Channels, Time)
 out = model1(input_tensor)
 print(out.shape)  # should be (1, 16, 108)
 
+def latent_flux_loss(z_pred, z_input):
+    # 1. Calculate the "Velocity" of the latent space (Shape: Batch, 16, Time-1)
+    flux_pred = z_pred[..., 1:] - z_pred[..., :-1]
+    flux_input = z_input[..., 1:] - z_input[..., :-1]
+    
+    # 2. Force the velocities to match magnitude (Energy/Rhythm)
+    # We square it to get "Energy", then compare.
+    return F.mse_loss(flux_pred**2, flux_input**2)
+  
+  
 class transientLoss(nn.Module):
-  def __init__(self, rave_path, device):
+  def __init__(self, ckpt_path, device):
     super().__init__()
     self.device = device
-    self.rave_grad = torch.jit.load(rave_path, map_location=self.device)
-    self.rave_grad.eval()
-    self.clean_state = {k: v.clone() for k, v in self.rave_grad.state_dict().items()}
-    
-    self.rave_ref = torch.jit.load(rave_path, map_location=self.device)
-    self.rave_ref.eval()
-    self.clean_state_2 = {k: v.clone() for k, v in self.rave_ref.state_dict().items()}
 
     # freeze gradients so we dont backprop through rave
     for p in self.rave_grad.parameters():
@@ -120,13 +123,6 @@ class transientLoss(nn.Module):
       rave_instance.decode(dummy)
       
   def forward(self, input_signal_prediction, target_signal):
-    self.reset_rave()
-
-    input_envelope = self.get_envelope(input_signal_prediction, self.rave_grad)
-    
-    # safety; redundant since we fixed rave earlier 
-    with torch.no_grad():
-      target_envelope = self.get_envelope(target_signal, self.rave_ref)
     
     # avoid 0 pads as a result of pooling
     min_length = min(input_envelope.shape[-1], target_envelope.shape[-1])
@@ -139,8 +135,8 @@ class transientLoss(nn.Module):
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 X_PATH = "./dream_voice/test_data/train_loop_test_X_1000.pt"
 Y_PATH = "./dream_voice/test_data/train_loop_test_Y_1000.pt"
-RAVE_PATH = "./dream_voice/musicnet.ts"
-RAVE_MODEL = torch.jit.load(RAVE_PATH).to(DEVICE).eval()
+#RAVE_PATH = "./dream_voice/musicnet.ts"
+#RAVE_MODEL = torch.jit.load(RAVE_PATH).to(DEVICE).eval()
 MODEL_SAVE_PATH = "dreamify.pth"
 
 BATCH_SIZE = 32
@@ -165,7 +161,7 @@ def main():
   dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
   print("dataloader good")
   
-  transient_loss_fn = transientLoss(RAVE_PATH, DEVICE)
+  #transient_loss_fn = transientLoss(RAVE_PATH, DEVICE)
   # print(hasattr(transient_loss_fn.rave_model, 'reset'))
   general_loss_fn = nn.MSELoss()
   
@@ -188,7 +184,7 @@ def main():
       print(f"batch {batch_idx}")
       predicted_embedding_batch  = resnet_model(x_batch)
       general_loss = general_loss_fn(predicted_embedding_batch, y_batch)
-      transient_loss = transient_loss_fn(predicted_embedding_batch, y_batch)
+      transient_loss = latent_flux_loss(predicted_embedding_batch, y_batch)
 
       # tune this weight later
       total_loss = general_loss + 0.5 * transient_loss
