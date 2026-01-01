@@ -112,6 +112,80 @@ class transientLoss(nn.Module):
     target_envelope = target_envelope[..., :min_length]
     
     return F.mse_loss(input_envelope, target_envelope)
+
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+X_PATH = "./dream_voice/test_data/train_loop_test_X_1000.pt"
+Y_PATH = "./dream_voice/test_data/train_loop_test_Y_1000.pt"
+RAVE_PATH = "./dream_voice/musicnet.ts"
+RAVE_MODEL = torch.jit.load(RAVE_PATH).to(DEVICE).eval()
+MODEL_SAVE_PATH = "dreamify.pth"
+
+BATCH_SIZE = 32
+EPOCHS = 100
+LR = 1e-4
+
+def main():
+  print("working on {DEVICE}")
   
+  X = torch.load(X_PATH).to(DEVICE)
+  Y = torch.load(Y_PATH).to(DEVICE)
+
+  if X.ndim == 4: X = X.squeeze(1)
+  if Y.ndim == 4: Y = Y.squeeze(1)
+
+  #X = torch.randn(100, 16, 108).to(DEVICE)
+  #Y = torch.randn(100, 16, 108).to(DEVICE)
+
+  print(X.shape, Y.shape)
+  # tensor dataset: eager loading. data is small enough to fit in memory; 16 parameter embeddings
+  dataset = torch.utils.data.TensorDataset(X, Y)
+  dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+  print("dataloader good")
+  
+  transient_loss_fn = transientLoss(RAVE_MODEL)
+  print(hasattr(transient_loss_fn.rave_model, 'reset'))
+
+  general_loss_fn = nn.MSELoss()
+  
+  resnet_model = ResNet1D(init_dim=16, hidden_dim=64).to(DEVICE)
+  print("loaded RESNET model")
+  
+  optimizer = optim.Adam(resnet_model.parameters(), lr=LR)
+  
+  resnet_model.train()
+  for epoch in range(EPOCHS):
+    epoch_loss_general = 0.0
+    epoch_loss_transient = 0.0
+    epoch_loss_total = 0.0
+    
+    if hasattr(transient_loss_fn.rave_model, 'reset'):
+        transient_loss_fn.rave.reset()
+    
+    for batch_idx, (x_batch, y_batch) in enumerate(dataloader):
+      
+      
+      predicted_embedding_batch  = resnet_model(x_batch)
+      general_loss = general_loss_fn(predicted_embedding_batch, y_batch)
+      transient_loss = transient_loss_fn(predicted_embedding_batch, y_batch)
+
+      # tune this weight later
+      total_loss = general_loss + 0.5 * transient_loss
+      
+      optimizer.zero_grad()
+      total_loss.backward()
+      optimizer.step()
+      
+      epoch_loss_general += general_loss.item()
+      epoch_loss_transient += transient_loss.item()
+      epoch_loss_total += total_loss.item()
+      
+    # MSELoss; reduction='mean' by default - batch loop gives mean error per batch
+    # get average loss per epoch; len(dataloader) gives number of batches
+    if epoch % 5 == 0:
+      print(f"Epoch {epoch+1}/{EPOCHS}, General Loss: {epoch_loss_general/len(dataloader):.6f}, Transient Loss: {epoch_loss_transient/len(dataloader):.6f}, Total Loss: {epoch_loss_total/len(dataloader):.6f}")
+
+  print("Training complete.")
+
 if __name__ == "__main__":
-  pass
+  main()
