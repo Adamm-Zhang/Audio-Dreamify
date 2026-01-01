@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from typing import List, Tuple
+from io import BytesIO
 import numpy as np
 import os
 
@@ -74,20 +75,27 @@ out = model1(input_tensor)
 print(out.shape)  # should be (1, 16, 108)
 
 class transientLoss(nn.Module):
-  def __init__(self, rave_model):
+  def __init__(self, rave_path, device):
     super().__init__()
-    self.rave_model = rave_model
+    self.device = device
+    self.rave_grad = torch.jit.load(rave_path, map_location=self.device)
+    self.rave_grad.eval()
+    self.clean_state = {k: v.clone() for k, v in self.rave_grad.state_dict().items()}
+    
+    self.rave_ref = torch.jit.load(rave_path, map_location=self.device)
+    self.rave_ref.eval()
+    self.clean_state_2 = {k: v.clone() for k, v in self.rave_ref.state_dict().items()}
 
-    # eval so we dont get random dropout/batchnorm effects on rave; treat musicnet.ts as fixed feature extractor
-    rave_model.eval()
-    
     # freeze gradients so we dont backprop through rave
-    for param in self.rave_model.parameters():
-      param.requires_grad = False
-    
-  def get_envelope(self, embedding):
-    signal = self.rave_model.decode(embedding)
-    
+    for p in self.rave_grad.parameters():
+      p.requires_grad = False
+      
+    for p in self.rave_ref.parameters():
+      p.requires_grad = False
+  
+            
+  def get_envelope(self, embedding, rave_instance):
+    signal = rave_instance.decode(embedding)
     # rave.compute_envelope() might not exist in torchscript file
     # might be too fast of an envelope sampling window
     # goal is to blur signal to get transient envelope
@@ -97,14 +105,28 @@ class transientLoss(nn.Module):
     # dont add padding here; might add silence artifacts that confuse model
     envelope = F.avg_pool1d(rectified, kernel_size=512, stride=256)
     return envelope
-
-  def forward(self, input_signal_prediction, target_signal):
+  
+  def reset_rave(self):
+    self.rave_grad.load_state_dict(self.clean_state)
+    self.rave_ref.load_state_dict(self.clean_state_2)
     
-    input_envelope = self.get_envelope(input_signal_prediction)
+  def flush_rave(self, rave_instance, reference_tensor):
+    dummy = torch.zeros_like(reference_tensor).to(self.device)
+    print("AHHHHH")
+    print(dummy.shape)
+    print(reference_tensor.shape)
     
-    # safety; redundant since we fixed rave earlier
     with torch.no_grad():
-      target_envelope = self.get_envelope(target_signal)
+      rave_instance.decode(dummy)
+      
+  def forward(self, input_signal_prediction, target_signal):
+    self.reset_rave()
+
+    input_envelope = self.get_envelope(input_signal_prediction, self.rave_grad)
+    
+    # safety; redundant since we fixed rave earlier 
+    with torch.no_grad():
+      target_envelope = self.get_envelope(target_signal, self.rave_ref)
     
     # avoid 0 pads as a result of pooling
     min_length = min(input_envelope.shape[-1], target_envelope.shape[-1])
@@ -143,9 +165,8 @@ def main():
   dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
   print("dataloader good")
   
-  transient_loss_fn = transientLoss(RAVE_MODEL)
-  print(hasattr(transient_loss_fn.rave_model, 'reset'))
-
+  transient_loss_fn = transientLoss(RAVE_PATH, DEVICE)
+  # print(hasattr(transient_loss_fn.rave_model, 'reset'))
   general_loss_fn = nn.MSELoss()
   
   resnet_model = ResNet1D(init_dim=16, hidden_dim=64).to(DEVICE)
@@ -155,16 +176,16 @@ def main():
   
   resnet_model.train()
   for epoch in range(EPOCHS):
+    print("epoch")
     epoch_loss_general = 0.0
     epoch_loss_transient = 0.0
     epoch_loss_total = 0.0
     
-    if hasattr(transient_loss_fn.rave_model, 'reset'):
-        transient_loss_fn.rave.reset()
+    # if hasattr(transient_loss_fn.rave_model, 'reset'):
+    #     transient_loss_fn.rave.reset()
     
     for batch_idx, (x_batch, y_batch) in enumerate(dataloader):
-      
-      
+      print(f"batch {batch_idx}")
       predicted_embedding_batch  = resnet_model(x_batch)
       general_loss = general_loss_fn(predicted_embedding_batch, y_batch)
       transient_loss = transient_loss_fn(predicted_embedding_batch, y_batch)
