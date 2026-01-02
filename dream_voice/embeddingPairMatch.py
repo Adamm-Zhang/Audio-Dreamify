@@ -48,7 +48,7 @@ model = torch.jit.load(model_path)
 model.eval()
 
 
-def get_invertible_embedding(audio_path):
+def get_invertible_embedding(audio_path, rave_model):
     x, sr = librosa.load(audio_path, sr=44100, mono=True)
     
     # Prepare tensor: (Batch, Channels, Time)
@@ -57,7 +57,7 @@ def get_invertible_embedding(audio_path):
     # Encode to latent space 'z'
     # z shape is typically (Batch, Latent_Dim, Time_Frames)
     with torch.no_grad():
-        z = model.encode(x_tensor)
+        z = rave_model.encode(x_tensor)
         
     return z
 
@@ -82,7 +82,7 @@ class Segment:
 # print(emb_mean.shape)  # Example usage
 
 # for data of each segment from a directory of segments, build Segment dataclass objects
-def build_segments(segment_items, kmeans) -> List[Segment]:
+def build_segments(segment_items, kmeans, rave_model) -> List[Segment]:
     """
     segment_items: iterable of dicts like:
       {"path":..., "start_s":..., "duration_s":..., "features": np.array(F,)}
@@ -95,7 +95,7 @@ def build_segments(segment_items, kmeans) -> List[Segment]:
         print(cid)
 
         # item["path"] is an already sliced 5 second clip
-        embedding = get_invertible_embedding(item["path"])
+        embedding = get_invertible_embedding(item["path"], rave_model)
         # print(embedding.shape)
         print("created embeddings for:", item["path"])
         
@@ -123,16 +123,16 @@ def truncate_segment_lists(segmentList1: List[Segment], segmentList2: List[Segme
         print(segment.emb_mean.shape)
     return segmentList1, segmentList2
 
-dreamSongs = Path(r"./dream_voice/dreamSegments")
-trapSongs = Path(r"./dream_voice/trapSegments")
-DSP_process = dream_voice.dreamSectionClassifier()
+# dreamSongs = Path(r"./dream_voice/dreamSegments")
+# trapSongs = Path(r"./dream_voice/trapSegments")
+# DSP_process = dream_voice.dreamSectionClassifier()
 
 # pretrained kmeans model
 section_classifier = joblib.load("kmeans_section_classifier.joblib")
 
 # collect segment data for all segments in a folder; each segment has metadata + dsp data in a dictionary
 # so we can get kmeans section cluster and openl3 embeddings later
-def collect_seg_data(path: Path) -> List[Dict]:
+def collect_seg_data(path: Path, DSP_process) -> List[Dict]:
     segments = []
     for file in path.glob("*.mp3"):
         features = DSP_process.fullFeatureExtract(str(file))
@@ -190,7 +190,7 @@ def pair_segments_by_cluster_nn(
     pairs.sort(key=lambda t: t[2])
     return pairs
 
-def make_pt_file(pairList, outputPath):
+def make_pt_file(pairList, outputTrapPath, outputDreamPath):
     Xtrap = torch.tensor([])
     Xdream = torch.tensor([])
     for i, (trap_seg, dream_seg, dist) in enumerate(pairList):
@@ -199,25 +199,37 @@ def make_pt_file(pairList, outputPath):
     
     print(f"XTRAP SHAPE: {Xtrap.shape}")
     print(f"XDREAM SHAPE: {Xdream.shape}")
-    torch.save((Xtrap, Xdream), outputPath)
-
-# refactor to collect functions into segment builder class
-segments_dream = collect_seg_data(dreamSongs)
-segment_objs_dream = build_segments(segments_dream, section_classifier)
-print(type(segment_objs_dream))
-print(f"Built {len(segment_objs_dream)} dream segment objects.")
+    torch.save(Xtrap, outputTrapPath)
+    torch.save(Xdream, outputDreamPath)
 
 
-segments_trap = collect_seg_data(trapSongs)
-segment_objs_trap = build_segments(segments_trap, section_classifier)
-print(type(segment_objs_trap))
-print(f"Built {len(segment_objs_trap)} trap segment objects.")
+def main_get_embedding_pairs(rave_model, section_classifier, dreamSegments, trapSegments, DSP_process):
+# refactor to collect functions into segment builder class    
+    segments_dream = collect_seg_data(dreamSegments, DSP_process)
+    segment_objs_dream = build_segments(segments_dream, section_classifier, rave_model=rave_model)
+    print(type(segment_objs_dream))
+    print(f"Built {len(segment_objs_dream)} dream segment objects.")
 
-segment_objs_dream, segment_objs_trap = truncate_segment_lists(segment_objs_dream, segment_objs_trap)
 
-# there's 1 pair being formed with trap and dream because theres only cluster 0 and 2 in dream, while trap has a single 0 cluster
-# must rework dataset and cluster generation
-# algorithm works though
-pairs = pair_segments_by_cluster_nn(segment_objs_dream, segment_objs_dream, k=1)
-print(f"Found {len(pairs)} pairs.")
-make_pt_file(pairs, r"./dream_voice/embeddingPairs.pt")
+    segments_trap = collect_seg_data(trapSegments, DSP_process)
+    segment_objs_trap = build_segments(segments_trap, section_classifier, rave_model=rave_model)
+    print(type(segment_objs_trap))
+    print(f"Built {len(segment_objs_trap)} trap segment objects.")
+
+    segment_objs_dream, segment_objs_trap = truncate_segment_lists(segment_objs_dream, segment_objs_trap)
+
+    # there's 1 pair being formed with trap and dream because theres only cluster 0 and 2 in dream, while trap has a single 0 cluster
+    # must rework dataset and cluster generation
+    # algorithm works though
+    pairs = pair_segments_by_cluster_nn(segment_objs_dream, segment_objs_dream, k=1)
+    print(f"Found {len(pairs)} pairs.")
+    make_pt_file(pairs, r"./dream_voice/training_data_pt/embeddingPairsTrap.pt", r"./dream_voice/training_data_pt/embeddingPairsDream.pt")
+
+'''
+dreamSegments = Path(r"./dream_voice/dreamSegments")
+trapSegments = Path(r"./dream_voice/trapSegments")
+
+# need this to classify segments in our dataset
+DSP_process = dream_voice.dreamSectionClassifier()
+main_get_embedding_pairs(model, section_classifier, dreamSegments, trapSegments, DSP_process)
+'''

@@ -1,3 +1,4 @@
+import joblib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +8,10 @@ from typing import List, Tuple
 from io import BytesIO
 import numpy as np
 import os
+import dream_voice
+from pathlib import Path
+import pandas as pd
+import embeddingPairMatch
 
 class ResidualBlock(nn.Module):
   def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1):
@@ -133,8 +138,12 @@ class transientLoss(nn.Module):
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-X_PATH = "./dream_voice/test_data/train_loop_test_X_1000.pt"
-Y_PATH = "./dream_voice/test_data/train_loop_test_Y_1000.pt"
+# X_PATH = "./dream_voice/test_data/train_loop_test_X_1000.pt"
+# Y_PATH = "./dream_voice/test_data/train_loop_test_Y_1000.pt"
+
+X_PATH = "./dream_voice/training_data_pt/embeddingPairsDream.pt"
+Y_PATH = "./dream_voice/training_data_pt/embeddingPairsTrap.pt"
+
 #RAVE_PATH = "./dream_voice/musicnet.ts"
 #RAVE_MODEL = torch.jit.load(RAVE_PATH).to(DEVICE).eval()
 MODEL_SAVE_PATH = "dreamify.pth"
@@ -143,7 +152,38 @@ BATCH_SIZE = 32
 EPOCHS = 100
 LR = 1e-4
 
-def main():
+# dont really need this; we will rely on the actual file to do this since its not part of the pipeline
+def main_train_segment_classification():
+  dreamSongs = Path(r"./dream_voice/fullDreamSongs")
+  trapSongs = Path(r"./dream_voice/fullTrapSongs")
+  dreamSegmentsOutput = Path(r"./dream_voice/dreamSegments")
+  trapSegmentsOutput = Path(r"./dream_voice/trapSegments")
+
+  classifier1 = dream_voice.dreamSectionClassifier()
+  
+  # only if we need to process full songs - we do this so we can use full segment dataset for training - more random distribution
+  dream_voice.splitSongs(dreamSongs, trapSongs, dreamSegmentsOutput, trapSegmentsOutput)
+  
+  kmeans_model = dream_voice.kmeansSectionClassifier(n_clusters=3)
+  kmeansDataframe = pd.DataFrame()
+  fileNames = []
+  
+  for directory in [dreamSegmentsOutput, trapSegmentsOutput]:
+    for file in directory.glob("*.mp3"):
+        features = classifier1.fullFeatureExtract(str(file))
+        kmeansDataframe = kmeansDataframe._append(features, ignore_index=True)
+        fileNames.append(file.name)
+
+  kmeans_model.fit(kmeansDataframe)
+
+  kmeansDataframe['Cluster'] = kmeans_model.classifier.labels_
+  kmeansDataframe['fileName'] = fileNames
+  
+  print(kmeansDataframe.head())
+  joblib.dump(kmeans_model, "kmeans_section_classifier.joblib")
+  
+  
+def main_train():
   print("working on {DEVICE}")
   
   X = torch.load(X_PATH).to(DEVICE)
@@ -203,6 +243,23 @@ def main():
       print(f"Epoch {epoch+1}/{EPOCHS}, General Loss: {epoch_loss_general/len(dataloader):.6f}, Transient Loss: {epoch_loss_transient/len(dataloader):.6f}, Total Loss: {epoch_loss_total/len(dataloader):.6f}")
 
   print("Training complete.")
+  torch.save(resnet_model.state_dict(), MODEL_SAVE_PATH)
+  print(f"Model saved to {MODEL_SAVE_PATH}")
 
 if __name__ == "__main__":
-  main()
+  
+  # rave model for segment embedding; 16 channel embeddings for training
+  rave_model_path = "./dream_voice/musicnet.ts" 
+  rave_model = torch.jit.load(rave_model_path)
+  rave_model.eval()
+  
+  dreamSegments = Path(r"./dream_voice/dreamSegments")
+  trapSegments = Path(r"./dream_voice/trapSegments")
+  DSP_process = dream_voice.dreamSectionClassifier()
+  print("created DSP processor")
+  
+  section_classifier = joblib.load("kmeans_section_classifier.joblib")
+  embeddingPairMatch.main_get_embedding_pairs(rave_model, section_classifier, dreamSegments, trapSegments, DSP_process)
+
+  print("got pairs")
+  main_train()

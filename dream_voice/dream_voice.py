@@ -70,8 +70,10 @@ class sectionClassifier(ABC, StereoMixin):
         return low_band, mid_band, high_band
 
 class dreamSectionClassifier(sectionClassifier):
-    def __init__(self):
+    def __init__(self, low_band=300, high_band=3000):
         super().__init__()
+        self.low_band = low_band
+        self.high_band = high_band
         print(self.sr)
         
     def fullFeatureExtract(self, audio_path):
@@ -81,7 +83,7 @@ class dreamSectionClassifier(sectionClassifier):
         
         y_mid = self.midSideDecompose(y)['mid']
         # average low band energy
-        low_band, mid_band, high_band = self.getBands(y_mid, lowCut=300, highCut=3000)
+        low_band, mid_band, high_band = self.getBands(y_mid, lowCut=self.low_band, highCut=self.high_band)
 
         features['low_band'] = low_band
         features['mid_band'] = mid_band
@@ -106,6 +108,18 @@ class kmeansSectionClassifier():
         scaled_features = self.scaler.transform(feature_dataframe)
         return self.classifier.predict(scaled_features)
 
+def splitSongs(dreamSongs, trapSongs, dreamOutputDirect, trapOutputDirect):
+    for file in dreamSongs.glob("*.mp3"):
+        print("Processing file:", file)
+        seg_gen = segmentGenerator(file)
+        seg_gen.generate_and_save_segments(dreamOutputDirect, file.stem)
+    
+    for file in trapSongs.glob("*.mp3"):
+        print("Processing file:", file)
+        seg_gen = segmentGenerator(file)
+        seg_gen.generate_and_save_segments(trapOutputDirect, file.stem)
+    
+
 classifier1 = dreamSectionClassifier()
 # features = classifier1.fullFeatureExtract(r"./dream_voice/segment_0.mp3")
 
@@ -116,7 +130,7 @@ dreamSegmentsOutput = Path(r"./dream_voice/dreamSegments")
 trapSegmentsOutput = Path(r"./dream_voice/trapSegments")
 
 # reformat these - copy code
-'''
+
 for file in dreamSongs.glob("*.mp3"):
     print("Processing file:", file)
     seg_gen = segmentGenerator(file)
@@ -125,8 +139,7 @@ for file in dreamSongs.glob("*.mp3"):
 for file in trapSongs.glob("*.mp3"):
     seg_gen = segmentGenerator(file)
     seg_gen.generate_and_save_segments(r"./dream_voice/trapSegments", file.stem)
-'''
-'''
+
 kmeans_dream = kmeansSectionClassifier(n_clusters=3)
 kmeansDataframe = pd.DataFrame()
 fileNames = []
@@ -142,8 +155,7 @@ kmeans_dream.fit(kmeansDataframe)
 
 kmeansDataframe['Cluster'] = kmeans_dream.classifier.labels_
 kmeansDataframe['fileName'] = fileNames
-'''
-# print(kmeansDataframe)
-# filename = 'section_classifier_kmeans.pickle'
 
-# joblib.dump(kmeans_dream, "kmeans_section_classifier.joblib")
+print(kmeansDataframe)
+
+joblib.dump(kmeans_dream, "kmeans_section_classifier.joblib")
