@@ -10,6 +10,7 @@ import pandas as pd
 import sklearn
 import pickle
 import joblib
+import os
 
 class StereoMixin:
     def midSideDecompose(self, y):
@@ -119,8 +120,9 @@ def splitSongs(dreamSongs, trapSongs, dreamOutputDirect, trapOutputDirect):
         seg_gen = segmentGenerator(file)
         seg_gen.generate_and_save_segments(trapOutputDirect, file.stem)
     
-
+# only need 1 classifier object; classification parameters are the same
 classifier1 = dreamSectionClassifier()
+
 # features = classifier1.fullFeatureExtract(r"./dream_voice/segment_0.mp3")
 
 # directory_path = Path(r"./dream_voice/audioFiles")
@@ -129,33 +131,60 @@ trapSongs = Path(r"./dream_voice/fullTrapSongs")
 dreamSegmentsOutput = Path(r"./dream_voice/dreamSegments")
 trapSegmentsOutput = Path(r"./dream_voice/trapSegments")
 
+os.makedirs(dreamSegmentsOutput, exist_ok=True)
+os.makedirs(trapSegmentsOutput, exist_ok=True)
+
 # reformat these - copy code
 
 for file in dreamSongs.glob("*.mp3"):
     print("Processing file:", file)
     seg_gen = segmentGenerator(file)
-    seg_gen.generate_and_save_segments(r"./dream_voice/dreamSegments", file.stem)
+    seg_gen.generate_and_save_segments(dreamSegmentsOutput, file.stem)
 
 for file in trapSongs.glob("*.mp3"):
     seg_gen = segmentGenerator(file)
-    seg_gen.generate_and_save_segments(r"./dream_voice/trapSegments", file.stem)
+    seg_gen.generate_and_save_segments(trapSegmentsOutput, file.stem)
 
+
+# need 2 classifiers; else we might overfit to some genre-specific trait
+# i.e. trap is louder in general; might match all trap segments to only dream choruses
+# we can see this with previous experimental results
 kmeans_dream = kmeansSectionClassifier(n_clusters=3)
-kmeansDataframe = pd.DataFrame()
-fileNames = []
+kmeans_trap = kmeansSectionClassifier(n_clusters=3)
 
-for directory in [dreamSegmentsOutput, trapSegmentsOutput]:
-    for file in directory.glob("*.mp3"):
-        features = classifier1.fullFeatureExtract(str(file))
-        kmeansDataframe = kmeansDataframe._append(features, ignore_index=True)
-        fileNames.append(file.name)
+dream_kmeansDataframe = pd.DataFrame()
+trap_kmeansDataframe = pd.DataFrame()
+
+dream_fileNames = []
+trap_fileNames = []
 
 
-kmeans_dream.fit(kmeansDataframe)
+# dream fit
+for file in dreamSegmentsOutput.glob("*.mp3"):
+    features = classifier1.fullFeatureExtract(str(file))
+    dream_kmeansDataframe = dream_kmeansDataframe._append(features, ignore_index=True)
+    dream_fileNames.append(file.name)
 
-kmeansDataframe['Cluster'] = kmeans_dream.classifier.labels_
-kmeansDataframe['fileName'] = fileNames
+kmeans_dream.fit(dream_kmeansDataframe)
 
-print(kmeansDataframe)
+dream_kmeansDataframe['Cluster'] = kmeans_dream.classifier.labels_
+dream_kmeansDataframe['fileName'] = dream_fileNames
 
-joblib.dump(kmeans_dream, "kmeans_section_classifier.joblib")
+# trap fit
+for file in trapSegmentsOutput.glob("*.mp3"):
+    features = classifier1.fullFeatureExtract(str(file))
+    trap_kmeansDataframe = trap_kmeansDataframe._append(features, ignore_index=True)
+    trap_fileNames.append(file.name)
+
+kmeans_trap.fit(trap_kmeansDataframe)
+
+trap_kmeansDataframe['Cluster'] = kmeans_trap.classifier.labels_
+trap_kmeansDataframe['fileName'] = trap_fileNames
+
+print(dream_kmeansDataframe)
+print(trap_kmeansDataframe)
+
+classifiersPath = r"./dream_voice/kmeans_classifiers"
+os.makedirs(classifiersPath, exist_ok=True)
+joblib.dump(kmeans_dream, "{classifiersPath} dream_kmeans_section_classifier.joblib")
+joblib.dump(kmeans_trap, "{classifiersPath} trap_kmeans_section_classifier.joblib")
