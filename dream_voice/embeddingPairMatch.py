@@ -228,7 +228,8 @@ def main_get_embedding_pairs(rave_model, dream_section_classifier, dream_map, tr
     print(f"Found {len(pairs)} pairs.")
     make_pt_file(pairs, r"./dream_voice/training_data_pt/embeddingPairsTrap.pt", r"./dream_voice/training_data_pt/embeddingPairsDream.pt")
 
-
+'''
+# testing code
 # pretrained kmeans models
 dream_kmeans_path = "./dream_voice/kmeans_classifiers/dream_kmeans_section_classifier.joblib"
 trap_kmeans_path = "./dream_voice/kmeans_classifiers/trap_kmeans_section_classifier.joblib"
@@ -242,3 +243,4 @@ trapSegments = Path(r"./dream_voice/trapSegments")
 # need this to classify segments in our dataset
 DSP_process = dream_voice.dreamSectionClassifier()
 main_get_embedding_pairs(model, dream_section_classifier, dream_map, trap_section_classifier, trap_map, dreamSegments, trapSegments, DSP_process)
+'''

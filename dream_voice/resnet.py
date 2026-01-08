@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
+from utils import load_remapped_kmeans
 from typing import List, Tuple
 from io import BytesIO
 import numpy as np
@@ -212,7 +213,7 @@ def main_train():
   
   resnet_model.train()
   for epoch in range(EPOCHS):
-    print("epoch")
+    print(f"epoch: {epoch}")
     epoch_loss_general = 0.0
     epoch_loss_transient = 0.0
     epoch_loss_total = 0.0
@@ -220,6 +221,7 @@ def main_train():
     # if hasattr(transient_loss_fn.rave_model, 'reset'):
     #     transient_loss_fn.rave.reset()
     
+    # it prints 0s with test data because theres only 14 pairs in existence. 32/14 < 2
     for batch_idx, (x_batch, y_batch) in enumerate(dataloader):
       print(f"batch {batch_idx}")
       predicted_embedding_batch  = resnet_model(x_batch)
@@ -249,17 +251,25 @@ def main_train():
 if __name__ == "__main__":
   
   # rave model for segment embedding; 16 channel embeddings for training
-  rave_model_path = "./dream_voice/musicnet.ts" 
-  rave_model = torch.jit.load(rave_model_path)
-  rave_model.eval()
+  # rave_model_path = "./dream_voice/musicnet.ts" 
+  # rave_model = torch.jit.load(rave_model_path)
+  # rave_model.eval()
+  rave_model = embeddingPairMatch.model
   
+  # pretrained kmeans models
+  dream_kmeans_path = "./dream_voice/kmeans_classifiers/dream_kmeans_section_classifier.joblib"
+  trap_kmeans_path = "./dream_voice/kmeans_classifiers/trap_kmeans_section_classifier.joblib"
+
+  # kmeans models
+  dream_section_classifier, dream_map = load_remapped_kmeans(dream_kmeans_path)
+  trap_section_classifier, trap_map = load_remapped_kmeans(trap_kmeans_path)  
+
   dreamSegments = Path(r"./dream_voice/dreamSegments")
   trapSegments = Path(r"./dream_voice/trapSegments")
-  DSP_process = dream_voice.dreamSectionClassifier()
-  print("created DSP processor")
-  
-  section_classifier = joblib.load("kmeans_section_classifier.joblib")
-  embeddingPairMatch.main_get_embedding_pairs(rave_model, section_classifier, dreamSegments, trapSegments, DSP_process)
 
+  # need this to classify segments in our dataset
+  DSP_process = dream_voice.dreamSectionClassifier()
+  embeddingPairMatch.main_get_embedding_pairs(rave_model, dream_section_classifier, dream_map, trap_section_classifier, trap_map, dreamSegments, trapSegments, DSP_process)
+  
   print("got pairs")
   main_train()

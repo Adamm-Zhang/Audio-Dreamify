@@ -13,6 +13,14 @@ import joblib
 import os
 import torch
 
+### Main purpose of this file: ###
+# initial datapipeline from full songs to usable 5s segments for resnet model
+# extract general DSP features
+# create kmeans model to automatically classify segments by approximate song section; likely verse, chorus, bridge
+# basically to ensure main resnet model trains off apple-to-apple pairs
+
+# this runs separately from resnet main for now!
+
 class StereoMixin:
     def midSideDecompose(self, y):
         mid = (y[0] + y[1]) / 2
