@@ -1,7 +1,11 @@
 import numpy as np
+import pandas as pd
 import soundfile as sf
 import math
 import librosa
+import torch
+import torch.nn.functional as F
+import joblib
 
 def splitAudio(audio_path, segment_duration=5.0):
     y, sr = sf.read(audio_path)
@@ -81,3 +85,76 @@ def flatten_embedding(clusterList):
     # Expected: (Num_Samples, 32)
     
     return X
+
+
+# latent flux
+def calc_spectral_flux(y, n_fft=2048, hop_length=512):
+    """
+    Calculates standard DSP Spectral Flux (Onset Strength).
+    Requires raw audio input.
+    """
+    # 1. Compute STFT (Spectrogram)
+    # shape: (Batch, Freq, Time)
+    spec = torch.stft(y, n_fft=n_fft, hop_length=hop_length, return_complex=True)
+    magnitude = torch.abs(spec)
+    
+    # 2. Positive Difference (Only counting energy *increases*)
+    # We ignore energy drops (decays) because rhythm is defined by attacks.
+    diff = magnitude[..., 1:] - magnitude[..., :-1]
+    positive_diff = F.relu(diff)
+    
+    # 3. Sum across all frequencies
+    flux_curve = torch.mean(positive_diff, dim=1)
+    print(f"TYPE OF FLUX CURVE: {type(flux_curve)}")
+    print(flux_curve.shape)
+    
+    return torch.mean(flux_curve[:14]), torch.mean(flux_curve[14:140]), torch.mean(flux_curve[140:])
+
+
+# this remaps random cluster ID to cluster IDs sorted by energy; so highest energy always corresponds to chorus for example
+# this ensures we don't accidentally pair chorus with verse for example
+# does light DSP feature analysis with existing features
+# order doesn't really matter; model shouldn't care about section, only signal similarity
+def get_energy_sorted_mapping(kmeans_model):
+    """
+    Returns a dictionary that maps Random Cluster IDs -> Sorted Energy IDs.
+    0 = Lowest Energy, 2 = Highest Energy.
+    """
+    # 1. Get the Centroids (Shape: n_clusters, n_features)
+    centers = kmeans_model.get_cluster_centers
+    centers_df = pd.DataFrame(centers, columns=kmeans_model.get_feature_names_in)
+    # 2. Calculate "Total Energy" score for each centroid
+    # We simply sum the Flux/RMS features. 
+    # Since your features are all positive (Energy), sum = total intensity.
+    energy_parameters = ['L spectral flux', 'M spectral flux', 'H spectral flux', 'rms', 'low_band']
+    energy_scores = centers_df[energy_parameters].sum(axis=1)
+    
+    # 3. Sort the indices based on Energy (Low -> High)
+    # argsort returns the Old IDs in the order of their energy.
+    # Example: If Cluster 2 is quietest, sorted_indices[0] will be 2.
+    sorted_indices = np.argsort(energy_scores)
+    
+    # 4. Create the Map
+    # We want a lookup table: {Old_ID: New_Sorted_ID}
+    mapping = {}
+    for new_id, old_id in enumerate(sorted_indices):
+        mapping[old_id] = new_id
+        
+    for old, new in mapping.items():
+        print(f"Old Label {old} -> New Label {new} (Energy: {energy_scores[old]:.2f})")
+        
+    return mapping
+
+
+# we can just directly get the mapping off the model when we load, have function for convenience
+# make sure to run any output through the mapping. 
+def load_remapped_kmeans(model_path):
+    # automap kmeans when loading to avoid the cluster label shift problem
+    model = joblib.load(model_path)
+    
+    mapping = get_energy_sorted_mapping(model)
+    
+    print(f"Loaded {model_path}")
+    print(f"Generated Map: {mapping} (Based on saved weights)")
+    
+    return model, mapping

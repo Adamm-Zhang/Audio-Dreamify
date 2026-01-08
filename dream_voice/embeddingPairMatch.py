@@ -1,15 +1,15 @@
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 from sklearn.neighbors import NearestNeighbors
-from utils import flatten_embedding
+from utils import flatten_embedding, load_remapped_kmeans
 import numpy as np
 import librosa
-import openl3
 from pathlib import Path
 import dream_voice
 import joblib
 import pandas as pd
 import torch
+import os
 
 def load_audio_stereo(path, sr=44100):
     # librosa returns (2, N) if mono=False
@@ -82,7 +82,7 @@ class Segment:
 # print(emb_mean.shape)  # Example usage
 
 # for data of each segment from a directory of segments, build Segment dataclass objects
-def build_segments(segment_items, kmeans, rave_model) -> List[Segment]:
+def build_segments(segment_items, kmeans, cluster_remap, rave_model) -> List[Segment]:
     """
     segment_items: iterable of dicts like:
       {"path":..., "start_s":..., "duration_s":..., "features": np.array(F,)}
@@ -91,8 +91,9 @@ def build_segments(segment_items, kmeans, rave_model) -> List[Segment]:
     
     for item in segment_items:
         # print(type(item['features']))
-        cid = kmeans.predict(pd.DataFrame([item["features"]]))[0]
-        print(cid)
+        raw_id = kmeans.predict(pd.DataFrame([item["features"]]))[0]
+        cid = cluster_remap[raw_id]
+        print(f"energy remapped id: {raw_id} -> {cid}")
 
         # item["path"] is an already sliced 5 second clip
         embedding = get_invertible_embedding(item["path"], rave_model)
@@ -127,8 +128,7 @@ def truncate_segment_lists(segmentList1: List[Segment], segmentList2: List[Segme
 # trapSongs = Path(r"./dream_voice/trapSegments")
 # DSP_process = dream_voice.dreamSectionClassifier()
 
-# pretrained kmeans model
-section_classifier = joblib.load("kmeans_section_classifier.joblib")
+
 
 # collect segment data for all segments in a folder; each segment has metadata + dsp data in a dictionary
 # so we can get kmeans section cluster and openl3 embeddings later
@@ -171,7 +171,10 @@ def pair_segments_by_cluster_nn(
         dream_c = dream_by_cluster.get(cid, [])                     # dream_c = list(segment) for current cluster id; all segments
         if len(trap_c) == 0 or len(dream_c) == 0:
             continue
-
+        
+        # KNN to find the most acoustically similar segment in the other group by RAVE embedding
+        # by default this fits correctly assuming we have consistent clustering labels between trap and dream
+        # cluster labels are kept in the segment object, 
         X_dream = flatten_embedding(dream_c)    # (Nd, 16)
         nn = NearestNeighbors(n_neighbors=min(k, len(dream_c)), metric="cosine")
         nn.fit(X_dream)
@@ -188,6 +191,10 @@ def pair_segments_by_cluster_nn(
 
     # Optional: sort by best matches first
     pairs.sort(key=lambda t: t[2])
+    # print pairs
+    print("PRINTING PAIRS!!!")
+    for item in pairs:
+        print(item[0].path, item[1].path)
     return pairs
 
 def make_pt_file(pairList, outputTrapPath, outputDreamPath):
@@ -203,33 +210,35 @@ def make_pt_file(pairList, outputTrapPath, outputDreamPath):
     torch.save(Xdream, outputDreamPath)
 
 
-def main_get_embedding_pairs(rave_model, section_classifier, dreamSegments, trapSegments, DSP_process):
+def main_get_embedding_pairs(rave_model, dream_section_classifier, dream_map, trap_section_classifier, trap_map, dreamSegments, trapSegments, DSP_process):
 # refactor to collect functions into segment builder class    
     segments_dream = collect_seg_data(dreamSegments, DSP_process)
-    segment_objs_dream = build_segments(segments_dream, section_classifier, rave_model=rave_model)
+    segment_objs_dream = build_segments(segments_dream, dream_section_classifier, dream_map, rave_model=rave_model)
     print(type(segment_objs_dream))
     print(f"Built {len(segment_objs_dream)} dream segment objects.")
 
-
     segments_trap = collect_seg_data(trapSegments, DSP_process)
-    segment_objs_trap = build_segments(segments_trap, section_classifier, rave_model=rave_model)
+    segment_objs_trap = build_segments(segments_trap, trap_section_classifier, trap_map, rave_model=rave_model)
     print(type(segment_objs_trap))
     print(f"Built {len(segment_objs_trap)} trap segment objects.")
 
     segment_objs_dream, segment_objs_trap = truncate_segment_lists(segment_objs_dream, segment_objs_trap)
 
-    # there's 1 pair being formed with trap and dream because theres only cluster 0 and 2 in dream, while trap has a single 0 cluster
-    # must rework dataset and cluster generation
-    # algorithm works though
-    pairs = pair_segments_by_cluster_nn(segment_objs_dream, segment_objs_dream, k=1)
+    pairs = pair_segments_by_cluster_nn(segment_objs_dream, segment_objs_trap, k=1)
     print(f"Found {len(pairs)} pairs.")
     make_pt_file(pairs, r"./dream_voice/training_data_pt/embeddingPairsTrap.pt", r"./dream_voice/training_data_pt/embeddingPairsDream.pt")
 
-'''
+
+# pretrained kmeans models
+dream_kmeans_path = "./dream_voice/kmeans_classifiers/dream_kmeans_section_classifier.joblib"
+trap_kmeans_path = "./dream_voice/kmeans_classifiers/trap_kmeans_section_classifier.joblib"
+
+dream_section_classifier, dream_map = load_remapped_kmeans(dream_kmeans_path)
+trap_section_classifier, trap_map = load_remapped_kmeans(trap_kmeans_path)  
+
 dreamSegments = Path(r"./dream_voice/dreamSegments")
 trapSegments = Path(r"./dream_voice/trapSegments")
 
 # need this to classify segments in our dataset
 DSP_process = dream_voice.dreamSectionClassifier()
-main_get_embedding_pairs(model, section_classifier, dreamSegments, trapSegments, DSP_process)
-'''
+main_get_embedding_pairs(model, dream_section_classifier, dream_map, trap_section_classifier, trap_map, dreamSegments, trapSegments, DSP_process)
