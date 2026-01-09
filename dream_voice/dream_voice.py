@@ -146,77 +146,78 @@ def splitSongs(dreamSongs, trapSongs, dreamOutputDirect, trapOutputDirect):
         seg_gen = segmentGenerator(file)
         seg_gen.generate_and_save_segments(trapOutputDirect, file.stem)
     
-# only need 1 classifier object; classification parameters are the same
-classifier1 = dreamSectionClassifier()
+if __name__ == "__main__":
+    # only need 1 classifier object; classification parameters are the same
+    classifier1 = dreamSectionClassifier()
 
-# features = classifier1.fullFeatureExtract(r"./dream_voice/segment_0.mp3")
+    # features = classifier1.fullFeatureExtract(r"./dream_voice/segment_0.mp3")
 
-# directory_path = Path(r"./dream_voice/audioFiles")
-dreamSongs = Path(r"./dream_voice/fullDreamSongs")
-trapSongs = Path(r"./dream_voice/fullTrapSongs")
-dreamSegmentsOutput = Path(r"./dream_voice/dreamSegments")
-trapSegmentsOutput = Path(r"./dream_voice/trapSegments")
+    # directory_path = Path(r"./dream_voice/audioFiles")
+    dreamSongs = Path(r"./dream_voice/fullDreamSongs")
+    trapSongs = Path(r"./dream_voice/fullTrapSongs")
+    dreamSegmentsOutput = Path(r"./dream_voice/dreamSegments")
+    trapSegmentsOutput = Path(r"./dream_voice/trapSegments")
 
-os.makedirs(dreamSegmentsOutput, exist_ok=True)
-os.makedirs(trapSegmentsOutput, exist_ok=True)
+    os.makedirs(dreamSegmentsOutput, exist_ok=True)
+    os.makedirs(trapSegmentsOutput, exist_ok=True)
 
-# reformat these - copy code
+    # reformat these - copy code
 
-for file in dreamSongs.glob("*.mp3"):
-    print("Processing file:", file)
-    seg_gen = segmentGenerator(file)
-    seg_gen.generate_and_save_segments(dreamSegmentsOutput, file.stem)
+    for file in dreamSongs.glob("*.mp3"):
+        print("Processing file:", file)
+        seg_gen = segmentGenerator(file)
+        seg_gen.generate_and_save_segments(dreamSegmentsOutput, file.stem)
 
-for file in trapSongs.glob("*.mp3"):
-    seg_gen = segmentGenerator(file)
-    seg_gen.generate_and_save_segments(trapSegmentsOutput, file.stem)
+    for file in trapSongs.glob("*.mp3"):
+        seg_gen = segmentGenerator(file)
+        seg_gen.generate_and_save_segments(trapSegmentsOutput, file.stem)
 
 
-# init dataframes to train kmeans on for DSP section classification
-dream_kmeansDataframe = pd.DataFrame()
-trap_kmeansDataframe = pd.DataFrame()
+    # init dataframes to train kmeans on for DSP section classification
+    dream_kmeansDataframe = pd.DataFrame()
+    trap_kmeansDataframe = pd.DataFrame()
 
-# keep segment file name for tracking and validation later
-dream_fileNames = []
-trap_fileNames = []
+    # keep segment file name for tracking and validation later
+    dream_fileNames = []
+    trap_fileNames = []
 
-###### dream ######
+    ###### dream ######
 
-# fill dream dataframe for kmeans training
-for file in dreamSegmentsOutput.glob("*.mp3"):
-    features = classifier1.fullFeatureExtract(str(file))
-    dream_kmeansDataframe = pd.concat([dream_kmeansDataframe, pd.DataFrame([features])], ignore_index=True)
-    dream_fileNames.append(file.name)
+    # fill dream dataframe for kmeans training
+    for file in dreamSegmentsOutput.glob("*.mp3"):
+        features = classifier1.fullFeatureExtract(str(file))
+        dream_kmeansDataframe = pd.concat([dream_kmeansDataframe, pd.DataFrame([features])], ignore_index=True)
+        dream_fileNames.append(file.name)
 
-# need 2 classifiers; else we might overfit to some genre-specific trait
-# i.e. trap is louder in general; might match all trap segments to only dream choruses
-# we can see this with previous experimental results
-# NOTE: we define trap and dream classifier objects right before training so we can store feature_names in 1 go. 
-# using standard_scaler converts df to numpy array; can't access feature names later on for energy classification in utils
-kmeans_dream = kmeansSectionClassifier(feature_names=dream_kmeansDataframe.columns, n_clusters=3)
-kmeans_dream.fit(dream_kmeansDataframe)
+    # need 2 classifiers; else we might overfit to some genre-specific trait
+    # i.e. trap is louder in general; might match all trap segments to only dream choruses
+    # we can see this with previous experimental results
+    # NOTE: we define trap and dream classifier objects right before training so we can store feature_names in 1 go. 
+    # using standard_scaler converts df to numpy array; can't access feature names later on for energy classification in utils
+    kmeans_dream = kmeansSectionClassifier(feature_names=dream_kmeansDataframe.columns, n_clusters=3)
+    kmeans_dream.fit(dream_kmeansDataframe)
 
-dream_kmeansDataframe['Cluster'] = kmeans_dream.classifier.labels_
-dream_kmeansDataframe['fileName'] = dream_fileNames
+    dream_kmeansDataframe['Cluster'] = kmeans_dream.classifier.labels_
+    dream_kmeansDataframe['fileName'] = dream_fileNames
 
-###### trap ######
+    ###### trap ######
 
-# fill trap dataframe for kmeans training
-for file in trapSegmentsOutput.glob("*.mp3"):
-    features = classifier1.fullFeatureExtract(str(file))
-    trap_kmeansDataframe = pd.concat([trap_kmeansDataframe, pd.DataFrame([features])], ignore_index=True)
-    trap_fileNames.append(file.name)
+    # fill trap dataframe for kmeans training
+    for file in trapSegmentsOutput.glob("*.mp3"):
+        features = classifier1.fullFeatureExtract(str(file))
+        trap_kmeansDataframe = pd.concat([trap_kmeansDataframe, pd.DataFrame([features])], ignore_index=True)
+        trap_fileNames.append(file.name)
 
-kmeans_trap = kmeansSectionClassifier(feature_names=trap_kmeansDataframe.columns, n_clusters=3)
-kmeans_trap.fit(trap_kmeansDataframe)
+    kmeans_trap = kmeansSectionClassifier(feature_names=trap_kmeansDataframe.columns, n_clusters=3)
+    kmeans_trap.fit(trap_kmeansDataframe)
 
-trap_kmeansDataframe['Cluster'] = kmeans_trap.classifier.labels_
-trap_kmeansDataframe['fileName'] = trap_fileNames
+    trap_kmeansDataframe['Cluster'] = kmeans_trap.classifier.labels_
+    trap_kmeansDataframe['fileName'] = trap_fileNames
 
-print(dream_kmeansDataframe)
-print(trap_kmeansDataframe)
+    print(dream_kmeansDataframe)
+    print(trap_kmeansDataframe)
 
-classifiersPath = r"./dream_voice/kmeans_classifiers"
-os.makedirs(classifiersPath, exist_ok=True)
-joblib.dump(kmeans_dream, os.path.join(classifiersPath, "dream_kmeans_section_classifier.joblib"))
-joblib.dump(kmeans_trap, os.path.join(classifiersPath, "trap_kmeans_section_classifier.joblib"))
+    classifiersPath = r"./dream_voice/kmeans_classifiers"
+    os.makedirs(classifiersPath, exist_ok=True)
+    joblib.dump(kmeans_dream, os.path.join(classifiersPath, "dream_kmeans_section_classifier.joblib"))
+    joblib.dump(kmeans_trap, os.path.join(classifiersPath, "trap_kmeans_section_classifier.joblib"))
