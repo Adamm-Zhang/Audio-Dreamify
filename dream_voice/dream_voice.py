@@ -153,8 +153,8 @@ if __name__ == "__main__":
     # features = classifier1.fullFeatureExtract(r"./dream_voice/segment_0.mp3")
 
     # directory_path = Path(r"./dream_voice/audioFiles")
-    dreamSongs = Path(r"./dream_voice/fullDreamSongs")
-    trapSongs = Path(r"./dream_voice/fullTrapSongs")
+    dreamSongs = Path(r".\dream_voice\songScrape\rawData\fullDreamSongs")
+    trapSongs = Path(r".\dream_voice\songScrape\rawData\fullTrapSongs")
     dreamSegmentsOutput = Path(r"./dream_voice/dreamSegments")
     trapSegmentsOutput = Path(r"./dream_voice/trapSegments")
 
@@ -163,12 +163,12 @@ if __name__ == "__main__":
 
     # reformat these - copy code
 
-    for file in dreamSongs.glob("*.mp3"):
+    for file in dreamSongs.glob("*.wav"):
         print("Processing file:", file)
         seg_gen = segmentGenerator(file)
         seg_gen.generate_and_save_segments(dreamSegmentsOutput, file.stem)
 
-    for file in trapSongs.glob("*.mp3"):
+    for file in trapSongs.glob("*.wav"):
         seg_gen = segmentGenerator(file)
         seg_gen.generate_and_save_segments(trapSegmentsOutput, file.stem)
 

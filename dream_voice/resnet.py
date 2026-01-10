@@ -13,6 +13,12 @@ import dream_voice
 from pathlib import Path
 import pandas as pd
 import embeddingPairMatch
+from dream_voice import kmeansSectionClassifier 
+
+# 2. THE HACK: Manually assign it to the name pickle is looking for
+# This tells Python: "If anyone asks for 'kmeansSectionClassifier' in this script, give them this class."
+import sys
+sys.modules['__main__'].kmeansSectionClassifier = kmeansSectionClassifier
 
 class ResidualBlock(nn.Module):
   def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1):

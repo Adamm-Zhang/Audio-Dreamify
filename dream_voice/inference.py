@@ -19,7 +19,7 @@ class DreamVoicePredictor:
         
         self.sr = sr
 
-    def preprocess_audio_librosa(self, audio_path, target_sr=44100):
+    def preprocess_audio_librosa(self, audio_path, target_sr=48000):
       # need mono for rave embedding
       audio_np, sr = librosa.load(audio_path, sr=target_sr, mono=True)
       y = torch.from_numpy(audio_np).float()
@@ -62,12 +62,12 @@ class DreamVoicePredictor:
         print(f"✅ Saved to: {output_path}")
         
 if __name__ == "__main__":
-    MIX = 1.0
+    MIX = 0.3
     rave_path = "./dream_voice/musicnet.ts"
     dreamify_map_path = "./dream_voice/completedModels/dreamify.pth"
   
-    TEST_SEGMENT = "./dream_voice/trapSegments/eQMaster3_segment_14.mp3"
-    output_path = "./dream_voice/output_tests/testseg1.wav"
+    TEST_SEGMENT = "./dream_voice/trapSegments/The Chainsmokers - Summertime Friends (Official Video)_segment_18.mp3"
+    output_path = "./dream_voice/output_tests/testseg2.wav"
     
     dream = DreamVoicePredictor(rave_path, dreamify_map_path)
     dream.predict(TEST_SEGMENT, output_path, MIX)

@@ -36,7 +36,9 @@ dream_voice/trapSegments
 dream_voice/fullDreamSongs
 dream_voice/fullTrapSongs
 dream_voice/musicnet.ts
-
+dream_voice/songScrape/rawData
+dream_voice/songScrape/ffmpeg.exe
+dream_voice/songScrape/ffprobe.exe
 
 # Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
 # example: *tfplan*
