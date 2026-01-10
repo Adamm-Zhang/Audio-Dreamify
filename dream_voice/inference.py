@@ -28,8 +28,8 @@ class DreamVoicePredictor:
       y = y.unsqueeze(0).unsqueeze(0)
       return y.to(self.device)
 
-    def predict(self, input_path, output_path):
-        print(f"\n🔮 Processing: {input_path}")
+    def predict(self, input_path, output_path, mix_ratio = 1.0):
+        print(f"\nProcessing: {input_path}")
         
         x_trap = self.preprocess_audio_librosa(input_path)
         
@@ -37,8 +37,15 @@ class DreamVoicePredictor:
             z_trap = self.rave.encode(x_trap).to(self.device)
             z_dreamy = self.dreamMap(z_trap)
             
+            if mix_ratio == 1.0:
+                z_final = self.dreamMap(z_trap)
+            elif mix_ratio == 0.0:
+                z_final = z_trap
+            else:
+                z_final = (z_trap * (1 - mix_ratio)) + (z_dreamy * mix_ratio)
+            
             print("decoding rave embedding to audio")
-            y_dreamy = self.rave.decode(z_dreamy)
+            y_dreamy = self.rave.decode(z_final)
 
 
         # remove batch dim
@@ -55,13 +62,14 @@ class DreamVoicePredictor:
         print(f"✅ Saved to: {output_path}")
         
 if __name__ == "__main__":
-  rave_path = "./dream_voice/musicnet.ts"
-  dreamify_map_path = "./dream_voice/completedModels/dreamify.pth"
+    MIX = 1.0
+    rave_path = "./dream_voice/musicnet.ts"
+    dreamify_map_path = "./dream_voice/completedModels/dreamify.pth"
   
-  TEST_SEGMENT = "./dream_voice/trapSegments/eQMaster3_segment_14.mp3"
-  output_path = "./dream_voice/output_tests/testseg1.wav"
-  
-  dream = DreamVoicePredictor(rave_path, dreamify_map_path)
-  dream.predict(TEST_SEGMENT, output_path)
+    TEST_SEGMENT = "./dream_voice/trapSegments/eQMaster3_segment_14.mp3"
+    output_path = "./dream_voice/output_tests/testseg1.wav"
+    
+    dream = DreamVoicePredictor(rave_path, dreamify_map_path)
+    dream.predict(TEST_SEGMENT, output_path, MIX)
   
   
