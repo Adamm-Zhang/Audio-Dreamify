@@ -43,7 +43,8 @@ def load_audio_stereo(path, sr=44100):
 
 # manual model load
 # https://acids-ircam.github.io/rave_models_download
-model_path = "./dream_voice/musicnet.ts" 
+# model_path = "./dream_voice/musicnet.ts" 
+model_path = "./dream_voice/vintage.ts"
 model = torch.jit.load(model_path)
 model.eval()
 

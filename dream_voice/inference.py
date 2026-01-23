@@ -53,21 +53,21 @@ class DreamVoicePredictor:
         
         # Check for clipping (optional)
         if torch.max(torch.abs(y_dreamy)) > 1.0:
-            print("   ⚠️ Output clipped! Normalizing volume...")
+            print("Output clipped! Normalizing volume...")
             y_dreamy = y_dreamy / torch.max(torch.abs(y_dreamy))
 
         audio_np = y_dreamy.detach().cpu().numpy()
         audio_np = audio_np.T
         sf.write(output_path, audio_np, samplerate=self.sr)
-        print(f"✅ Saved to: {output_path}")
+        print(f"Saved to: {output_path}")
         
 if __name__ == "__main__":
-    MIX = 0.3
-    rave_path = "./dream_voice/musicnet.ts"
+    MIX = 1.0
+    rave_path = "./dream_voice/vintage.ts"
     dreamify_map_path = "./dream_voice/completedModels/dreamify.pth"
-  
-    TEST_SEGMENT = "./dream_voice/trapSegments/The Chainsmokers - Summertime Friends (Official Video)_segment_18.mp3"
-    output_path = "./dream_voice/output_tests/testseg2.wav"
+
+    TEST_SEGMENT = "./dream_voice/trapSegments/Paper Idol - Clouds_segment_16.mp3"
+    output_path = "./dream_voice/output_tests/testseg1.wav"
     
     dream = DreamVoicePredictor(rave_path, dreamify_map_path)
     dream.predict(TEST_SEGMENT, output_path, MIX)
